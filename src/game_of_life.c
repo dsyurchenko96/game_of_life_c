@@ -1,42 +1,41 @@
-#include <ncurses.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-#define ROWS 25
-#define COLS 80
-#define INTERVAL 50
-
-int **dynMem(int rows, int cols, int inputFlag);
-void freeAll(int **a, int rows);
-int input(int **a, const int *rows, const int *cols);
-void output(int **a, int rows, int cols);
-int countNeighbours(int **matrix, int row, int col);
-int getState(int **matrix, int row, int col);
-char switcher(int **a, int row, int col);
-void looper(int **matrixOld, int **matrixNew, int speed);
-void controls(char key, int *speed);
-void cursed(int **matrixOld, int **matrixNew);
+#include "game_of_life.h"
 
 int main(void) {
-    int exitStatus = 0;
-    int **matrixOld = dynMem(ROWS, COLS, 1);
-    if (matrixOld) {
-        int **matrixNew = dynMem(ROWS, COLS, 0);
+    int exitStatus = choose_file();
+    int **matrixOld = NULL;
+    if (!exitStatus && (matrixOld = dyn_mem(ROWS, COLS, 1)) != NULL) {
+        int **matrixNew = dyn_mem(ROWS, COLS, 0);
         if (matrixNew) {
             if (freopen("/dev/tty", "r", stdin) != NULL) {
                 cursed(matrixOld, matrixNew);
             }
-            freeAll(matrixNew, ROWS);
+            free_all(matrixNew, ROWS);
         } else {
             exitStatus = 1;
         }
-        freeAll(matrixOld, ROWS);
+        free_all(matrixOld, ROWS);
     } else {
         exitStatus = 1;
     }
     return exitStatus;
 }
+
+int choose_file(void) {
+    int exit_status = 0;
+    int num_file = 0;
+    char filename[BUFF];
+    printf("Choose your initial state (currently available from 1 to 8)\n");
+    while (!num_file) {
+        scanf("%d", &num_file);
+    }
+    sprintf(filename, "../init_states/%d.txt", num_file);
+    if (freopen(filename, "r", stdin) == NULL) {
+        exit_status = 1;
+    }
+    return exit_status;
+}
+
+
 
 void cursed(int **matrixOld, int **matrixNew) {
     initscr();
@@ -48,30 +47,41 @@ void cursed(int **matrixOld, int **matrixNew) {
 }
 
 void looper(int **matrixOld, int **matrixNew, int speed) {
-    int newState, curSpeed = speed;
-    int key = getch();
-    controls(key, &curSpeed);
-    if (key == 'q') {
-        return;
-    }
-    for (int row = 0; row < ROWS; row++) {
-        for (int col = 0; col < COLS; col++) {
-            newState = getState(matrixOld, row, col);
-            matrixNew[row][col] = newState;
+    int newState;
+    int curSpeed = speed;
+    int key;
+    while ((key = getch()) != 'q') {
+        controls(key, &curSpeed);
+        for (int row = 0; row < ROWS; row++) {
+            for (int col = 0; col < COLS; col++) {
+                newState = get_state(matrixOld, row, col);
+                matrixNew[row][col] = newState;
+            }
         }
+        output(matrixNew, ROWS, COLS);
+        printw(
+            "\n\nCurrent delay between generations is %d ms.\nPress '+' to increase it or '-' to decrease it by "
+            "%d ms, 'q' to quit.\n",
+            curSpeed, INTERVAL);
+        refresh();
+        napms(curSpeed);
+        clear();
+        swap_matrices(matrixOld, matrixNew);
     }
-    output(matrixNew, ROWS, COLS);
-    printw(
-        "\n\nCurrent delay between generations is %d ms.\nPress '+' to increase it or '-' to decrease it by "
-        "%d ms, 'q' to quit.\n",
-        speed, INTERVAL);
-    refresh();
-    napms(curSpeed);
-    clear();
-    looper(matrixNew, matrixOld, curSpeed);
 }
 
-int countNeighbours(int **matrix, int row, int col) {
+void swap_matrices(int **matrixOld, int **matrixNew) {
+    int temp = 0;
+    for (int row = 0; row < ROWS; row++) {
+        for (int col = 0; col < COLS; col++) {
+            temp = matrixOld[row][col];
+            matrixOld[row][col] = matrixNew[row][col];
+            matrixNew[row][col] = temp;
+        }
+    }
+}
+
+int count_neighbours(int **matrix, int row, int col) {
     int alive = 0;
     for (int i = row - 1; i <= row + 1; i++) {
         for (int j = col - 1; j <= col + 1; j++) {
@@ -86,9 +96,9 @@ int countNeighbours(int **matrix, int row, int col) {
     return alive;
 }
 
-int getState(int **matrix, int row, int col) {
+int get_state(int **matrix, int row, int col) {
     int curState = matrix[row][col], newState;
-    int neighbours = countNeighbours(matrix, row, col);
+    int neighbours = count_neighbours(matrix, row, col);
     if (curState == 0 && neighbours == 3) {
         newState = 1;
     } else if (curState == 1 && (neighbours < 2 || neighbours > 3)) {
@@ -99,14 +109,13 @@ int getState(int **matrix, int row, int col) {
     return newState;
 }
 
-int **dynMem(int rows, int cols, int inputFlag) {
+int **dyn_mem(int rows, int cols, int inputFlag) {
     int **ptrArray = calloc(rows, sizeof(int *));
     if (ptrArray) {
-        for (int i = 0; i < rows; i++) {
+        for (int i = 0; i < rows && ptrArray; i++) {
             ptrArray[i] = calloc(cols, sizeof(int));
             if (ptrArray[i] == NULL) {
-                ptrArray = NULL;
-                break;
+                free_all(ptrArray, i);
             }
         }
     } else {
@@ -118,7 +127,7 @@ int **dynMem(int rows, int cols, int inputFlag) {
     return ptrArray;
 }
 
-void freeAll(int **a, int rows) {
+void free_all(int **a, int rows) {
     for (int i = 0; i < rows; i++) {
         free(a[i]);
     }
@@ -176,7 +185,9 @@ void controls(char key, int *speed) {
             break;
 
         case '+':
-            *speed += INTERVAL;
+            if (*speed + INTERVAL < INTERVAL * 10) {
+                *speed += INTERVAL;
+            }
             break;
 
         default:
